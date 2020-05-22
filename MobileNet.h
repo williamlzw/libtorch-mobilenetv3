@@ -406,3 +406,69 @@ public:
 		return labels_.size();
 	};
 };
+
+template <typename DataLoader>
+void trainMobileNetv3(int32_t epoch, size_t batch_size, std::shared_ptr<MobileNetV3> model, torch::Device device, DataLoader& data_loader, torch::optim::Optimizer& optimizer, size_t dataset_size)
+{
+	model->train();
+	size_t batch_idx = 0;
+	for (auto& batch : data_loader) {
+		auto data = batch.data.to(device);
+		auto targets = batch.target.to(device);
+		//std::cout <<"data.size:"<< data.sizes() << std::endl;
+		//std::cout << "targets.size:" << targets.sizes() << std::endl;
+		targets = targets.reshape(batch_size);
+		optimizer.zero_grad();
+		auto output = model->forward(data);
+		//std::cout << "output.size:" << output.sizes() << std::endl;
+		//auto criterion = torch::nn::CrossEntropyLoss();
+		//auto loss = criterion(output, targets);
+		auto loss = torch::nll_loss(output, targets);
+		loss.backward();
+		optimizer.step();
+		batch_idx++;
+		if (batch_idx % 10 == 0) {
+			std::printf(
+				"\r训练批次: %ld [%5ld/%5ld] Loss: %.6f",
+				epoch,
+				batch_idx * batch.data.size(0),
+				dataset_size,
+				loss.item<float>());
+		}
+		else {
+			std::printf(
+				"\r训练批次: %ld [%5ld/%5ld] Loss: %.6f",
+				epoch,
+				batch_idx * batch.data.size(0),
+				dataset_size,
+				loss.item<float>());
+		}
+	}
+}
+
+template <typename DataLoader>
+void testMobileNetv3(size_t test_batch_size, std::shared_ptr<MobileNetV3> model, torch::Device device, DataLoader& data_loader, size_t dataset_size)
+{
+	model->eval();
+	float test_loss = 0;
+	int64_t correct = 0;
+	for (const auto& batch : data_loader) {
+		auto data = batch.data.to(device);
+		auto targets = batch.target.to(device);
+
+		targets = targets.reshape(test_batch_size);
+		auto output = model->forward(data);
+		//auto criterion = torch::nn::CrossEntropyLoss();
+		//test_loss += criterion(output, targets).item<float>();
+		test_loss += torch::nll_loss(output, targets,/*weight=*/{}, torch::Reduction::Sum).item<float>();
+
+		auto pred = output.argmax(1);
+		correct += pred.eq(targets).sum().item<int64_t>();
+	}
+
+	test_loss /= dataset_size;
+	std::printf(
+		"\n测试: 平均 loss: %.6f | 置信率: %.6f\n",
+		test_loss,
+		static_cast<float>(correct) / dataset_size);
+}
